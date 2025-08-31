@@ -1,89 +1,60 @@
 import streamlit as st
-from selenium import webdriver
-import requests
-import json
 import pandas as pd
+import requests as rq
+from datetime import datetime
 
-st.title("💳 Transaction Downloader")
+st.title("📥 Transaction Downloader")
 
-# Keep driver in Streamlit session state
-if "driver" not in st.session_state:
-    st.session_state.driver = None
+# --- User input ---
+username = st.text_input("Username")
+password = st.text_input("Password", type="password")
+start_date = st.date_input("Start date", datetime(2020, 1, 1))
+end_date = st.date_input("End date", datetime.today())
 
-# Step 1: Open login page
-if st.button("Open Login Page"):
-    st.write("Launching Chrome... Please log in manually.")
-    st.session_state.driver = webdriver.Chrome()
-    st.session_state.driver.get("https://sg.lianlianglobal.com/login")  # replace with actual login URL
-    st.success("Browser launched! Please log in, then return here.")
-
-# Step 2: Date input
-start_date = st.date_input("Start Date")
-end_date = st.date_input("End Date")
-
-# Step 3: Download transactions
 if st.button("Download Transactions"):
-    driver = st.session_state.driver
-    if driver is None:
-        st.error("⚠️ Please open the login page and log in first!")
-    else:
-        st.write("Grabbing cookies...")
+    try:
+        # --- Convert dates to timestamp (ms) ---
+        start_ts = int(datetime.combine(start_date, datetime.min.time()).timestamp() * 1000)
+        end_ts = int(datetime.combine(end_date, datetime.max.time()).timestamp() * 1000)
 
-        # Grab cookies from Selenium
-        cookies = driver.get_cookies()
-        cookie_dict = {c['name']: c['value'] for c in cookies}
+        # --- API endpoints (replace with yours) ---
+        login_url = "https://example.com/api/login"
+        tx_url = "https://example.com/api/transaction/download"
 
-        # Use cookies with requests
-        session = requests.Session()
-        for name, value in cookie_dict.items():
-            session.cookies.set(name, value)
+        # --- Login ---
+        session = rq.Session()
+        payload = {
+            "loginName": username,
+            "password": password
+        }
+        login_res = session.post(login_url, json=payload).json()
 
-        url = "https://sg.lianlianglobal.com/cb-ew-biz-gateway/transaction/search"
-        headers = {"Content-Type": "application/json"}
-
-        all_records = []
-        page = 1
-        page_size = 500
-
-        while True:
-            payload = {
-                "pageNo": page,
-                "pageSize": page_size,
-                "startDate": str(start_date),
-                "endDate": str(end_date)
-            }
-
-            resp = session.post(url, headers=headers, data=json.dumps(payload))
-
-            if resp.status_code != 200:
-                st.error(f"Request failed: {resp.status_code} → {resp.text}")
-                break
-
-            data = resp.json()
-
-            if data.get("success", False) and "model" in data and "resultList" in data["model"]:
-                records = data["model"]["resultList"]
-                if not records:  # no more results
-                    break
-                all_records.extend(records)
-
-                # if less than page_size → last page
-                if len(records) < page_size:
-                    break
-                page += 1
-            else:
-                st.error(f"API did not return transactions. Full response: {data}")
-                break
-
-        if all_records:
-            df = pd.DataFrame(all_records)
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="📥 Download CSV",
-                data=csv,
-                file_name=f"transactions_{start_date}_{end_date}.csv",
-                mime="text/csv",
-            )
-            st.success(f"Downloaded {len(df)} records ✅")
+        if not login_res.get("success"):
+            st.error("❌ Login failed, please check credentials.")
         else:
-            st.warning("⚠️ No transactions found for the selected date range.")
+            # --- Fetch transactions ---
+            params = {
+                "dateStart": start_ts,
+                "dateEnd": end_ts,
+                "pageNo": 1,
+                "pageSize": 1000
+            }
+            tx_res = session.post(tx_url, json=params).json()
+
+            if not tx_res.get("success"):
+                st.error("❌ Failed to fetch transactions. Please check the date range.")
+            else:
+                records = tx_res["model"]["resultList"]
+
+                if not records:
+                    st.warning("No transactions found for this period.")
+                else:
+                    # --- Turn into DataFrame ---
+                    df = pd.DataFrame(records)
+                    st.dataframe(df)
+
+                    # --- Download as CSV ---
+                    csv = df.to_csv(index=False).encode("utf-8")
+                    st.download_button("Download CSV", csv, "transactions.csv", "text/csv")
+    except Exception as e:
+        st.error(f"Error: {e}")
