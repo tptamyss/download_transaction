@@ -1,60 +1,92 @@
 import streamlit as st
+import requests
 import pandas as pd
-import requests as rq
-from datetime import datetime
+import json
+import hashlib
 
-st.title("📥 Transaction Downloader")
+st.title("💳 Transaction Downloader (No Selenium)")
 
-# --- User input ---
-username = st.text_input("Username")
+# --- Step 1: User login ---
+st.subheader("Login")
+email = st.text_input("Email", value="Sliner.int@gmail.com")
 password = st.text_input("Password", type="password")
-start_date = st.date_input("Start date", datetime(2020, 1, 1))
-end_date = st.date_input("End date", datetime.today())
 
-if st.button("Download Transactions"):
-    try:
-        # --- Convert dates to timestamp (ms) ---
-        start_ts = int(datetime.combine(start_date, datetime.min.time()).timestamp() * 1000)
-        end_ts = int(datetime.combine(end_date, datetime.max.time()).timestamp() * 1000)
+if st.button("Login"):
+    # Hash the password (MD5)
+    password_hash = hashlib.md5(password.encode()).hexdigest()
 
-        # --- API endpoints (replace with yours) ---
-        login_url = "https://example.com/api/login"
-        tx_url = "https://example.com/api/transaction/download"
+    login_url = "https://sg.lianlianglobal.com/cb-va-sso-api/login?t=73189"
+    payload = {"loginName": email, "password": password_hash}
+    headers = {"Content-Type": "application/json"}
 
-        # --- Login ---
-        session = rq.Session()
-        payload = {
-            "loginName": username,
-            "password": password
-        }
-        login_res = session.post(login_url, json=payload).json()
-
-        if not login_res.get("success"):
-            st.error("❌ Login failed, please check credentials.")
+    resp = requests.post(login_url, headers=headers, data=json.dumps(payload))
+    if resp.status_code == 200:
+        data = resp.json()
+        if data.get("success") and "data" in data:
+            st.session_state.token = data["data"]["token"]
+            st.success("✅ Logged in successfully!")
         else:
-            # --- Fetch transactions ---
-            params = {
-                "dateStart": start_ts,
-                "dateEnd": end_ts,
-                "pageNo": 1,
-                "pageSize": 1000
+            st.error(f"❌ Login failed: {data}")
+    else:
+        st.error(f"⚠️ Request failed: {resp.status_code}")
+
+# --- Step 2: Date range selection ---
+st.subheader("Select Date Range")
+start_date = st.date_input("Start Date")
+end_date = st.date_input("End Date")
+
+# --- Step 3: Download transactions ---
+if st.button("Download Transactions"):
+    if "token" not in st.session_state:
+        st.error("⚠️ Please login first!")
+    else:
+        url = "https://sg.lianlianglobal.com/cb-ew-biz-gateway/transaction/search"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": st.session_state.token,  # 👈 use token here
+        }
+
+        all_records = []
+        page = 1
+        page_size = 500
+
+        while True:
+            payload = {
+                "pageNo": page,
+                "pageSize": page_size,
+                "startDate": str(start_date),
+                "endDate": str(end_date),
             }
-            tx_res = session.post(tx_url, json=params).json()
 
-            if not tx_res.get("success"):
-                st.error("❌ Failed to fetch transactions. Please check the date range.")
-            else:
-                records = tx_res["model"]["resultList"]
+            resp = requests.post(url, headers=headers, data=json.dumps(payload))
+            if resp.status_code != 200:
+                st.error(f"Request failed: {resp.status_code} → {resp.text}")
+                break
 
+            data = resp.json()
+
+            if data.get("success") and "model" in data and "resultList" in data["model"]:
+                records = data["model"]["resultList"]
                 if not records:
-                    st.warning("No transactions found for this period.")
-                else:
-                    # --- Turn into DataFrame ---
-                    df = pd.DataFrame(records)
-                    st.dataframe(df)
+                    break
+                all_records.extend(records)
 
-                    # --- Download as CSV ---
-                    csv = df.to_csv(index=False).encode("utf-8")
-                    st.download_button("Download CSV", csv, "transactions.csv", "text/csv")
-    except Exception as e:
-        st.error(f"Error: {e}")
+                if len(records) < page_size:
+                    break
+                page += 1
+            else:
+                st.error(f"API did not return transactions. Full response: {data}")
+                break
+
+        if all_records:
+            df = pd.DataFrame(all_records)
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download CSV",
+                data=csv,
+                file_name=f"transactions_{start_date}_{end_date}.csv",
+                mime="text/csv",
+            )
+            st.success(f"Downloaded {len(df)} records ✅")
+        else:
+            st.warning("⚠️ No transactions found for the selected date range.")
