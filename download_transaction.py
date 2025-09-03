@@ -4,6 +4,33 @@ import pandas as pd
 import json
 import hashlib
 
+url = "https://sg.lianlianglobal.com/cb-va-sso-api/login?t=83935"
+
+payload = {
+    "loginName": "Sliner.int@gmail.com",
+    "password": "97811cc727dfb195b02aff686a62533b"
+}
+
+headers = {
+    "accept": "application/json, text/plain, */*",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "accept-language": "en-US,en;q=0.9",
+    "content-type": "application/json;charset=UTF-8",
+    "origin": "https://sg.lianlianglobal.com",
+    "referer": "https://sg.lianlianglobal.com/login",
+    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0",
+    "bizsource": "SG_WALLET",
+    "bpentityid": "202202251000001",
+    "request-source": "wallet",
+    "devicedata": "eyJvc05hbWUiOiJtYWNPUyIsIm9zVmVyc2lvbiI6IjEwLjE1LjciLCJkZXZpY2VNYW51ZmFjdHVyZXIiOiJNaWNyb3NvZnQgRWRnZSIsImRldmljZU1vZGVsIjoiMTM5LjAuMC4wIiwidGltZVpvbmUiOiJBc2lhL1NhaWdvbiIsImRldmljZUlkIjoiNDEzOGEzNTlhYTZhZDFkZmU1NDI5M2IxOTgwYTBjNmQifQ=="
+}
+
+session = requests.Session()
+resp = session.post(url, headers=headers, data=json.dumps(payload))
+
+print("Response JSON:", resp.json())
+print("Cookies:", session.cookies.get_dict())
+
 st.title("💳 Transaction Downloader (No Selenium)")
 
 # --- Step 1: User login ---
